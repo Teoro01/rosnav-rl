@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, Tuple
 
 import numpy as np
 from gymnasium import spaces
@@ -61,6 +61,9 @@ class BaseSpaceManager:
 
     def decode_action(self, action: np.ndarray) -> np.ndarray:
         return self._action_space_manager.decode_action(action)
+
+    def decode_split_action(self, action: np.ndarray) -> List[Tuple[str, np.ndarray]]:
+        return self._action_space_manager.decode_split_action(action)
 
     # -- properties --------------------------------------------------------
 
