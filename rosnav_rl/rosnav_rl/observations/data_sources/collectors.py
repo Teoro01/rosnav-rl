@@ -24,6 +24,7 @@ from ..utils.types import (
     PedestrianDetections,
     ArenaPedestrianDetections,
     SafetyStatus,
+    JointStates,
 )
 
 
@@ -178,3 +179,23 @@ class ArenaPedestrianCollector(
         self, msg: arena_people_msgs.Pedestrians
     ) -> arena_people_msgs.Pedestrians:
         return msg
+
+class JointStateCollector(Collector[sensor_msgs.JointState, JointStates]):  
+
+    """
+    Collects and preprocesses joint state data from a ROS topic.
+    """   
+
+    def _preprocess(self, msg: sensor_msgs.JointState) -> JointStates:
+
+        velocities = msg.velocity if len(msg.velocity) == len(msg.name) else [0.0] * len(msg.name)
+        efforts = msg.effort if len(msg.effort) == len(msg.name) else [0.0] * len(msg.name)
+
+        return {
+            name : {
+                "position" : float(pos),
+                "velocity" : float(vel),
+                "effort"   : float(eff),
+            }
+            for name, pos, vel, eff in zip(msg.name, msg.position, velocities, efforts)
+        }
