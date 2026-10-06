@@ -1317,27 +1317,27 @@ class ArmDistAngleToGoalGenerator(Generator[DistanceAngleMetrics]):
     """
 
     requires = {
-        "goal_in_ee_frame": RelativePose3D,
+        "arm_goal_in_ee_frame": RelativePose3D,
     }
 
     def _generate(
         self,
-        goal_in_ee_frame: RelativePose3D,
+        arm_goal_in_ee_frame: RelativePose3D,
         simulation_state_container: AgentParameters,
         **kwargs,
     ) -> DistanceAngleMetrics:
         """Computes 3D distance and scalar rotational error.
 
         Args:
-            goal_in_ee_frame (RelativePose3D): [x, y, z, qx, qy, qz, qw] relative array
+            arm_goal_in_ee_frame (RelativePose3D): [x, y, z, qx, qy, qz, qw] relative array
 
         Returns:
             DistanceAngleMetrics: np.ndarray (2,) [distance_m, rotation_error_rad]
         """
 
-        dist_m = np.linalg.norm(goal_in_ee_frame[:3])
+        dist_m = np.linalg.norm(arm_goal_in_ee_frame[:3])
 
-        w = np.clip(abs(goal_in_ee_frame[6]), 0.0, 1.0)
+        w = np.clip(abs(arm_goal_in_ee_frame[6]), 0.0, 1.0)
         rot_error_rad = 2.0 * np.arccos(w)
 
         return np.array([dist_m, rot_error_rad], dtype=np.float32)
