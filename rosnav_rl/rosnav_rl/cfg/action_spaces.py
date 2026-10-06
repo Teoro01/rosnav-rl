@@ -391,7 +391,7 @@ class OmnidirectionalActionSpace(BaseActionSpace):
 # =====================================================================
 
 
-class ArmActionSpace(BaseActionSpace):
+class ManipulatorActionSpace(BaseActionSpace):
     """N-DOF robotic arm: ``[joint_1, ..., joint_n]``.
 
     Each joint has independent position / velocity limits.
@@ -419,7 +419,7 @@ class ArmActionSpace(BaseActionSpace):
         return {"joint_limits": [list(lim) for lim in self.position_limits]}
 
     @classmethod
-    def from_config(cls, arm_spec) -> ArmActionSpace:
+    def from_config(cls, arm_spec) -> ManipulatorActionSpace:
         joint_names = arm_spec.chain
         position_limits = []
 
@@ -562,7 +562,7 @@ ActionSpaceSpec = Annotated[
     Union[
         DifferentialDriveActionSpace,
         OmnidirectionalActionSpace,
-        ArmActionSpace,
+        ManipulatorActionSpace,
         HumanoidActionSpace,
         CompositeActionSpace,
     ],
