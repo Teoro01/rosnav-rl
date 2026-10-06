@@ -87,3 +87,22 @@ class RGBDSpace(BaseObservationSpace):
         # Combine RGB and Depth into RGBD (4 channels)
         rgbd_image = np.concatenate([color_image, depth_image], axis=-1)
         return rgbd_image.astype(np.uint8)
+
+    
+@SpaceFactory.register(auto_name=True, category=SpaceCategory.PERCEPTION)
+class WristRGBDSpace(RGBDSpace):
+    name = "WristRGBDSpace"
+    requires = {"wrist_color": ImageData, "wrist_depth": ImageData}
+
+    @BaseObservationSpace.apply_normalization
+    def encode_observation(self, wrist_color, wrist_depth, **kw):
+        return super().encode_observation(wrist_color, wrist_depth, **kw)
+
+@SpaceFactory.register(auto_name=True, category=SpaceCategory.PERCEPTION)
+class ArmBaseRGBDSpace(RGBDSpace):
+    name = "ArmBaseRGBDSpace"
+    requires = {"base_color": ImageData, "base_depth": ImageData}
+
+    @BaseObservationSpace.apply_normalization
+    def encode_observation(self, base_color, base_depth, **kw):
+        return super().encode_observation(base_color, base_depth, **kw)

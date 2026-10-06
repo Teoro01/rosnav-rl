@@ -22,13 +22,19 @@ from .laser import (
     ReducedLaserScanSpace,
 )
 
-from .vision import RGBDSpace
+from .vision import (
+    RGBDSpace,
+    WristRGBDSpace,
+    ArmBaseRGBDSpace
+)
 
 __all__ = [
     # Basic spaces
     "LaserScanSpace",
     "ReducedLaserScanSpace",
     "RGBDSpace",
+    "WristRGBDSpace",
+    "ArmBaseRGBDSpace",
     # Advanced spaces
     "ReliableLaserSpace",
     "MultiRangeLaserSpace",

@@ -3,6 +3,14 @@
 Vision processing spaces for camera-based navigation.
 """
 
-from .vision_spaces import RGBDSpace
+from .vision_spaces import (
+    RGBDSpace,
+    WristRGBDSpace,
+    ArmBaseRGBDSpace
+)
 
-__all__ = ["RGBDSpace"]
+__all__ = [
+    "RGBDSpace",
+    "WristRGBDSpace",
+    "ArmBaseRGBDSpace",
+]
