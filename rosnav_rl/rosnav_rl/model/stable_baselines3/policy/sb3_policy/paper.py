@@ -326,3 +326,26 @@ class AGENT_6(StableBaselinesPolicyDescription):
     lstm_hidden_size = 128
     shared_lstm = False
     enable_critic_lstm = True
+
+@AgentFactory.register("AGENT_7")
+class AGENT_7(StableBaselinesPolicyDescription):
+    algorithm_class: Type[BaseAlgorithm] = PPO
+    observation_space_kwargs = {
+        "normalize": True,
+        "goal_max_dist": 10,
+        "subgoal_max_dist": 10,
+        "reduced_num_beams": 270,
+        "rgbd_image_height": 240,
+        "rgbd_image_width": 320,
+    }
+    observation_spaces = [
+        spaces.perception.ReducedLaserScanSpace,
+        spaces.navigation.DistAngleToSubgoalSpace,
+        spaces.dynamics.LastActionSpace,
+        spaces.perception.WristRGBDSpace,
+        spaces.perception.ArmBaseRGBDSpace,
+    ]
+    features_extractor_class = EXTRACTOR_10
+    features_extractor_kwargs = dict(features_dim=256)
+    net_arch = dict(pi=[64, 64], vf=[64, 64])
+    activation_fn = nn.ReLU
