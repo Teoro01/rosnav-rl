@@ -24,8 +24,7 @@ from .laser import (
 
 from .vision import (
     RGBDSpace,
-    WristRGBDSpace,
-    ArmBaseRGBDSpace
+    RGBSpace,
 )
 
 __all__ = [
@@ -33,8 +32,7 @@ __all__ = [
     "LaserScanSpace",
     "ReducedLaserScanSpace",
     "RGBDSpace",
-    "WristRGBDSpace",
-    "ArmBaseRGBDSpace",
+    "RGBSpace",
     # Advanced spaces
     "ReliableLaserSpace",
     "MultiRangeLaserSpace",

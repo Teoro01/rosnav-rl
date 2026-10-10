@@ -69,28 +69,20 @@ datasources:
       topic: "scan"                    # Primary lidar topic
       up_to_date_required: true        # Critical for obstacle avoidance
 
-  wrist_color:
-    type: sensor_msgs/Image
+  # Cameras
+
+  wrist_rgb:
+    type: ImageColorCollector
     params:
-      topic: "rgbd_camera/wrist_rgbd_camera/image"
+      topic: "wrist_camera/image"
 
-  wrist_depth:
-    type: sensor_msgs/Image
+  base_rgb:
+    type: ImageColorCollector
     params:
-      topic: "rgbd_camera/wrist_rgbd_camera/depth_image"
+      topic: "arm_base_camera/image"
 
-  base_color:
-    type: sensor_msgs/Image
-    params:
-      topic: "rgbd_camera/arm_base_rgbd_camera/image"
+  # Navigation target collectors 
 
-  base_depth:
-    type: sensor_msgs/Image
-    params:
-      topic: "rgbd_camera/arm_base_rgbd_camera/depth_image"
-
-
-  # Navigation target collectors  
   goal_pose:
     type: geometry_msgs/PoseStamped   # → Pose2D
     params:

@@ -64,7 +64,8 @@ class RGBDSpace(BaseObservationSpace):
         """
         Encodes RGBD observation by combining color and depth images.
 
-        Args:
+        Args:e):
+
             color_image (ImageData): RGB color image, shape (H, W, 3) or (3, H, W)
             depth_image (ImageData): Depth image, shape (H, W) or (H, W, 1)
 
@@ -88,21 +89,35 @@ class RGBDSpace(BaseObservationSpace):
         rgbd_image = np.concatenate([color_image, depth_image], axis=-1)
         return rgbd_image.astype(np.uint8)
 
-    
 @SpaceFactory.register(auto_name=True, category=SpaceCategory.PERCEPTION)
-class WristRGBDSpace(RGBDSpace):
-    name = "WristRGBDSpace"
-    requires = {"wrist_color": ImageData, "wrist_depth": ImageData}
+class RGBSpace(BaseObservationSpace):
+
+    name = "RGBSpace"
+
+    def __init__(
+        self,
+        sources: list[str] | None = None,
+        image_height: int = 128,
+        image_width: int = 128,
+        *args,
+        **kwargs
+    ) -> None:
+
+        self._sources = sorted(sources or [])
+        self.requires = {source : ImageData for source in self._sources}
+        self._space = spaces.Box(
+            low=0,
+            high=255,
+            shape=(len(self._sources), 3, image_height, image_width),
+            dtype=np.uint8
+        )
+        super().__init__(*args, **kwargs)
+
+    def get_gym_space(self):
+        return self._space
 
     @BaseObservationSpace.apply_normalization
-    def encode_observation(self, wrist_color, wrist_depth, **kw):
-        return super().encode_observation(wrist_color, wrist_depth, **kw)
+    def encode_observation(self, *args, **obs):
 
-@SpaceFactory.register(auto_name=True, category=SpaceCategory.PERCEPTION)
-class ArmBaseRGBDSpace(RGBDSpace):
-    name = "ArmBaseRGBDSpace"
-    requires = {"base_color": ImageData, "base_depth": ImageData}
 
-    @BaseObservationSpace.apply_normalization
-    def encode_observation(self, base_color, base_depth, **kw):
-        return super().encode_observation(base_color, base_depth, **kw)
+        pass
