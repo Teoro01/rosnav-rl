@@ -2210,3 +2210,25 @@ class RewardArmApproachGoal(RewardUnit):
     def reset(self):
         """Reset internal state for a new episode."""
         self.last_distance = None
+
+@RewardUnitFactory.register("arm_abrupt_velocity_change")
+class RewardArmAbruptVelocityChange(RewardUnit):
+    """Reward unit for penalizing abrupt velocity changes in arm joints to encourage smooth movements.
+
+    Detects sudden changes in joint velocity between consecutive actions and applies
+    negative rewards based on the magnitude of change. Promotes smooth, continuous
+    movement patterns while penalizing jerky or erratic behavior.
+
+    Technical Specifications:
+    - Velocity Smoothness: Multi-dimensional velocity change detection
+    - Dimensional Weighting: Configurable penalties per velocity dimension
+    - Quartic Penalty: Non-linear penalty scaling (change^4) for strong smoothness
+
+    Configuration:
+    - vel_factors: Dictionary mapping dimension indices to penalty factors
+    - _on_safe_dist_violation: Enable penalty during safety violations
+
+    Output Behavior: reward = -sum((velocity_diff^4 / 100) * factor) per dimension
+
+    Applications: Smooth motion control, jerk reduction, and arm movement patterns.
+    """
