@@ -9,6 +9,7 @@ from typing import Any
 
 import arena_people_msgs.msg as arena_people_msgs
 import geometry_msgs.msg as geometry_msgs
+import trajectory_msgs.msg as trajectory_msgs
 import nav2_msgs.msg as nav2_msgs
 import nav_msgs.msg as nav_msgs
 import numpy as np
@@ -21,6 +22,7 @@ from ..utils.types import (
     ArenaPedestrianDetections,
     ImageData,
     JointStates,
+    ArmActionTrajectory,
     LidarRanges,
     NavigationPath,
     PedestrianDetections,
@@ -209,3 +211,19 @@ class JointStateCollector(Collector[JointTrajectoryControllerState, JointStates]
             }
             for name, pos, vel, eff in zip(names, positions, velocities, efforts, strict=False)
         }
+
+class JointTrajectroyCollector(Collector[trajectory_msgs.JointTrajectory, ArmActionTrajectory]):
+    """
+    Collects and preprocesses joint trajectory data from a ROS topic.
+    """
+
+    def _preprocess(self, msg: trajectory_msgs.JointTrajectory) -> ArmActionTrajectory:
+
+        if not msg.points:
+            return (np.array([], dtype=float), 0.0)
+
+        point = msg.points[0]
+        positions_array = np.asarray(point.positions, dtype=float)
+        dt = float(point.time_from_start.sec) + float(point.time_from_start.nanosec) / 1e9
+
+        return {positions_array, dt}

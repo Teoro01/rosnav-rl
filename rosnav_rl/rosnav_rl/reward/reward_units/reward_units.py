@@ -6,6 +6,7 @@ import numpy as np
 
 from rosnav_rl.cfg.parameters import AgentParameters
 from rosnav_rl.observations.utils.types import (
+    ArmActionTrajectory,
     DistanceAngleMetrics,
     GoalRelativePosition,
     LidarRanges,
@@ -18,7 +19,7 @@ from rosnav_rl.observations.utils.types import (
     SubgoalRelativePosition,
 )
 
-from ..constants import DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
+from ..constants import ARM_DEFAULTS, DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
 from ..reward_function import RewardFunction
 from ..utils import check_params
 from .base_reward_units import RewardUnit
@@ -2154,10 +2155,10 @@ class RewardArmApproachGoal(RewardUnit):
     def __init__(
         self,
         reward_function: "RewardFunction",
-        pos_factor: float = DEFAULTS.ARM_APPROACH_GOAL.POS_FACTOR,
-        neg_factor: float = DEFAULTS.ARM_APPROACH_GOAL.NEG_FACTOR,
-        _goal_update_threshold: float = DEFAULTS.ARM_APPROACH_GOAL._GOAL_UPDATE_THRESHOLD,
-        _on_safe_dist_violation: bool = DEFAULTS.ARM_APPROACH_GOAL._ON_SAFE_DIST_VIOLATION,
+        pos_factor: float = ARM_DEFAULTS.APPROACH_GOAL.POS_FACTOR,
+        neg_factor: float = ARM_DEFAULTS.APPROACH_GOAL.NEG_FACTOR,
+        _goal_update_threshold: float = ARM_DEFAULTS.APPROACH_GOAL._GOAL_UPDATE_THRESHOLD,
+        _on_safe_dist_violation: bool = ARM_DEFAULTS.APPROACH_GOAL._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,
     ):
@@ -2221,14 +2222,84 @@ class RewardArmAbruptVelocityChange(RewardUnit):
 
     Technical Specifications:
     - Velocity Smoothness: Multi-dimensional velocity change detection
-    - Dimensional Weighting: Configurable penalties per velocity dimension
     - Quartic Penalty: Non-linear penalty scaling (change^4) for strong smoothness
 
     Configuration:
-    - vel_factors: Dictionary mapping dimension indices to penalty factors
+    - vel_factor: Penalty factor for arm joints
     - _on_safe_dist_violation: Enable penalty during safety violations
 
     Output Behavior: reward = -sum((velocity_diff^4 / 100) * factor) per dimension
 
     Applications: Smooth motion control, jerk reduction, and arm movement patterns.
     """
+
+    requires = {
+        "last_arm_action": ArmActionTrajectory
+    }
+
+    @check_params
+    def __init__(
+        self,
+        reward_function: RewardFunction,
+        vel_factor: float = ARM_DEFAULTS.ABRUPT_VEL_CHANGE.VEL_FACTOR,
+        _on_safe_dist_violation: bool = ARM_DEFAULTS.ABRUPT_VEL_CHANGE._ON_SAFE_DIST_VIOLATION,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize abrupt velocity change penalty unit with dimensional weighting.
+
+        Args:
+            reward_function: The reward function object managing this unit
+            vel_factor: Penalty factor for arm joints
+            _on_safe_dist_violation: Enable penalty during safety violations
+            *args: Variable arguments
+            **kwargs: Keyword arguments
+        """
+        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
+
+        self._vel_factor = vel_factor
+        self.last_action = None
+        self.last_vel = None
+
+    def __call__(
+        self,
+        last_arm_action: ArmActionTrajectory,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Calculate penalty for abrupt velocity changes across configured dimensions.
+
+        Compares current position target with previous action to detect abrupt changes,
+        applying quartic penalties to encourage smooth, continuous motion.
+
+        Args:
+            last_action (ArmActionTrajectory): Robot position target command in joint frame
+                - Shape: (arm dof,)
+                - Units: [[rads, rads, ..., rads], seconds]
+                - Source: robot controller or action
+                - Example: "([0.0, 1.57, 1.23], 0.1)" (compared with previous action for smoothness)
+        """
+
+        curr_pos, dt = last_arm_action
+
+        if dt <= 0:
+            return
+
+        if self.last_action is not None:
+            prev_pos, _prev_dt = self.last_action
+            vel = (curr_pos - prev_pos) / dt
+
+            if self.last_vel is not None:
+                accel = vel - self.last_vel
+                penalty = np.sum((accel**4 / 100) * self._vel_factor)
+                self.add_reward(-penalty)
+
+            self.last_vel = vel
+
+        # Update tracking state
+        self.last_action = (last_arm_action[0].copy(), last_arm_action[1])
+
+    def reset(self):
+        """Reset internal state for new episode."""
+        self.last_action = None
+        self.last_vel = None
