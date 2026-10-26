@@ -2290,14 +2290,113 @@ class RewardArmAbruptVelocityChange(RewardUnit):
             vel = (curr_pos - prev_pos) / dt
 
             if self.last_vel is not None:
-                accel = vel - self.last_vel
-                penalty = np.sum((accel**4 / 100) * self._vel_factor)
+                vel_diff = vel - self.last_vel
+                penalty = np.sum((vel_diff**4 / 100) * self._vel_factor)
                 self.add_reward(-penalty)
 
             self.last_vel = vel
 
         # Update tracking state
-        self.last_action = (last_arm_action[0].copy(), last_arm_action[1])
+        self.last_action = (curr_pos.copy(), dt)
+
+    def reset(self):
+        """Reset internal state for new episode."""
+        self.last_action = None
+        self.last_vel = None
+
+@RewardUnitFactory.register("arm_root_velocity_difference")
+class RewardArmRootVelocityDifference(RewardUnit):
+    """Reward unit for promoting consistent root velocity differences.
+
+    Calculates the L2 norm of velocity differences between consecutive actions
+    and provides positive rewards when velocity changes remain below a threshold,
+    encouraging smooth and consistent motion patterns.
+
+    Technical Specifications:
+    - Root Velocity Metric: L2 norm of squared velocity differences
+    - Threshold-Based Reward: Positive rewards for consistent motion under threshold
+    - Consistency Promotion: Encourages predictable velocity command patterns
+
+    Configuration:
+    - k: Threshold value for velocity difference normalization
+    - _on_safe_dist_violation: Enable reward during safety violations
+
+    Output Behavior: reward = (1 - vel_diff) / k when vel_diff < k, else 0
+
+    Applications: Smooth motion control, velocity consistency, and stable navigation.
+    """
+
+    requires = {
+        "last_arm_action": ArmActionTrajectory
+    }
+
+    @check_params
+    def __init__(
+        self,
+        reward_function: RewardFunction,
+        k: float = ARM_DEFAULTS.ROOT_VEL_DIFF.K,
+        _on_safe_dist_violation: bool = ARM_DEFAULTS.ROOT_VEL_DIFF._ON_SAFE_DIST_VIOLATION,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize root velocity difference reward unit with threshold.
+
+        Args:
+            reward_function: The reward function object managing this unit
+            k: Threshold value for velocity difference normalization
+            _on_safe_dist_violation: Enable reward during safety violations
+            *args: Variable arguments
+            **kwargs: Keyword arguments
+        """
+        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
+
+        self._k = k
+        self.last_action = None
+        self.last_vel = None
+
+    def __call__(
+        self,
+        last_arm_action: ArmActionTrajectory,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Calculate reward for consistent root velocity differences.
+
+        Computes L2 norm of velocity changes and provides positive reward when
+        changes remain below threshold, promoting smooth motion consistency.
+
+        Args:
+            last_arm_action (ArmActionTrajectory): Arm jointTrajectory command in joint frame
+                - Shape: (arm dof,)
+                - Units: [[rads, rads, ..., rads], seconds]
+                - Source: robot controller or action
+                - Example: "([0.0, 1.57, 1.23], 0.1)" (compared with previous action for smoothness)
+        """
+
+        curr_pos, dt = last_arm_action
+
+        if dt <= 0:
+            return
+
+        if self.last_action is not None:
+
+            prev_pos, _  = self.last_action
+            vel = (curr_pos - prev_pos) / dt
+
+            if self.last_vel is not None:
+
+                # Calculate L2 norm of velocity differences
+                vel_diff = np.linalg.norm(vel - self.last_vel)
+
+                # Provide positive reward for consistent motion under threshold
+                if vel_diff < self._k:
+                    consistency_reward = 1.0 - (vel_diff / self._k)
+                    self.add_reward(consistency_reward)
+
+            self.last_vel = vel
+
+        # Update tracking state
+        self.last_action = (curr_pos.copy(), dt)
 
     def reset(self):
         """Reset internal state for new episode."""

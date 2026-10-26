@@ -107,3 +107,7 @@ class ARM_DEFAULTS:
     class ABRUPT_VEL_CHANGE:
         VEL_FACTOR: float = 0.08
         _ON_SAFE_DIST_VIOLATION: bool = True
+
+    class ROOT_VEL_DIFF:
+        K = 500
+        _ON_SAFE_DIST_VIOLATION: bool = False
