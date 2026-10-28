@@ -567,7 +567,7 @@ JointStates = Annotated[
     dict[str, dict[str, float]],
     DataSpec(
         description="Dictionary mapping joint names to their current kinematic states (position, velocity, effort)",
-        source="arm_controller/controller_state topic (control_msgs/JointTrajectoryControllerState)",
+        source="/joint_states topic (sensor_msgs/JointState)",
         units="position: rad, velocity: rad/s, effort: N·m",
         constraints="keys: joint names (str), values: {'position': rad, 'velocity': rad/s, 'effort': N·m}",
         example=(
@@ -579,15 +579,6 @@ JointStates = Annotated[
     ),
 ]
 
-ArmActionTrajectory = Annotated[
-    tuple[np.ndarray, float],
-    DataSpec(
-        description="Tuple containing target joint positions and the corresponding step time (dt)",
-        source="joint_trajectory topic history",
-        units="radians (rad), dt: seconds",
-        example="([0.0, 1.57], 0.1)",
-    ),
-]
 
 
 # Export all type annotations for easy importing
@@ -637,5 +628,4 @@ __all__ = [
     "RobotPoseVector",
     "LocalizationQualityVector",
     "JointStates",
-    "ArmActionTrajectory",
 ]
