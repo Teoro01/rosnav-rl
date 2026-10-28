@@ -2085,9 +2085,9 @@ class RewardArmGoalReached(RewardUnit):
     def __init__(
         self,
         reward_function: RewardFunction,
-        reward: float = DEFAULTS.GOAL_REACHED.REWARD,
-        goal_radius: float = DEFAULTS.ARM_GOAL_REACHED.GOAL_RADIUS,
-        angle_tolerance: float = DEFAULTS.ARM_GOAL_REACHED.ANGLE_TOLERANCE,
+        reward: float = ARM_DEFAULTS.GOAL_REACHED.REWARD,
+        goal_radius: float = ARM_DEFAULTS.GOAL_REACHED.GOAL_RADIUS,
+        angle_tolerance: float = ARM_DEFAULTS.GOAL_REACHED.ANGLE_TOLERANCE,
         _on_safe_dist_violation: bool = DEFAULTS.GOAL_REACHED._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,

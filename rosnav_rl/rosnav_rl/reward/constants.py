@@ -95,8 +95,10 @@ class DEFAULTS:
 
 class ARM_DEFAULTS:
     class GOAL_REACHED:
+        REWARD: float = 15.0
         GOAL_RADIUS: float = 0.05
         ANGLE_TOLERANCE: float = 0.2
+        _ON_SAFE_DIST_VIOLATION: bool = True
 
     class APPROACH_GOAL:
         POS_FACTOR: float = 0.3
