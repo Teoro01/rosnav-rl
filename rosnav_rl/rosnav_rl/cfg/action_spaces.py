@@ -97,6 +97,7 @@ class RobotArm(Protocol):
     @property
     def tip_link(self) -> str: ...
 
+
 class RobotGripper(Protocol):
     """One gripper entry of a robot description's caps."""
 
@@ -111,6 +112,7 @@ class RobotGripper(Protocol):
 
     @property
     def positions(self) -> dict[str, float]: ...
+
 
 class DiscretizationStrategy(StrEnum):
     """Supported auto-discretization strategies for mobile action spaces.
@@ -527,11 +529,11 @@ class GripperActionSpace(BaseActionSpace):
     @classmethod
     def from_config(cls, gripper_spec: RobotGripper) -> GripperActionSpace:
 
-        return cls (
-            arm = gripper_spec.arm,
-            joint = gripper_spec.joint,
-            controller = gripper_spec.controller,
-            positions = gripper_spec.positions,
+        return cls(
+            arm=gripper_spec.arm,
+            joint=gripper_spec.joint,
+            controller=gripper_spec.controller,
+            positions=gripper_spec.positions,
         )
 
 

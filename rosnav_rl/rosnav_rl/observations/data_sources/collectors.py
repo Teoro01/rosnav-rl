@@ -209,4 +209,3 @@ class JointStateCollector(Collector[JointTrajectoryControllerState, JointStates]
             }
             for name, pos, vel, eff in zip(names, positions, velocities, efforts, strict=False)
         }
-

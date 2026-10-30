@@ -2210,4 +2210,3 @@ class RewardArmApproachGoal(RewardUnit):
     def reset(self):
         """Reset internal state for a new episode."""
         self.last_distance = None
-

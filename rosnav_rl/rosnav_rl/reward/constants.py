@@ -102,4 +102,3 @@ class DEFAULTS:
         DISTANCE: float = 1.25
         FACTOR: float = -0.5
         _ON_SAFE_DIST_VIOLATION: bool = True
-
