@@ -2402,3 +2402,27 @@ class RewardArmRootVelocityDifference(RewardUnit):
         """Reset internal state for new episode."""
         self.last_action = None
         self.last_vel = None
+
+@RewardUnitFactory.register("goal_reached_navigation")
+class RewardGoalReachedNavigation(RewardGoalReached):
+    """
+    Reward unit that provides a positive reward when the robot reaches 
+    within the goal radius, but does NOT terminate the episode.
+    """
+
+    def __call__(
+        self,
+        dist_angle_to_goal: GoalRelativePosition,
+        dist_angle_to_subgoal: SubgoalRelativePosition,
+        simulation_state_container: AgentParameters,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Calculates the reward when the goal is reached without ending the episode."""
+        target_distance = dist_angle_to_subgoal[0] if self._follow_subgoal else dist_angle_to_goal[0]
+
+        if target_distance < simulation_state_container.goal_radius:
+            self.add_reward(self._reward)
+        
+        # Always return not done so the episode continues
+        self.add_info(self.NOT_DONE_INFO)
