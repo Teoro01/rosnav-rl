@@ -6,7 +6,6 @@ import numpy as np
 
 from rosnav_rl.cfg.parameters import AgentParameters
 from rosnav_rl.observations.utils.types import (
-    ArmActionTrajectory,
     DistanceAngleMetrics,
     GoalRelativePosition,
     LidarRanges,
@@ -19,7 +18,7 @@ from rosnav_rl.observations.utils.types import (
     SubgoalRelativePosition,
 )
 
-from ..constants import ARM_DEFAULTS, DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
+from ..constants import DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
 from ..reward_function import RewardFunction
 from ..utils import check_params
 from .base_reward_units import RewardUnit
@@ -2155,10 +2154,10 @@ class RewardArmApproachGoal(RewardUnit):
     def __init__(
         self,
         reward_function: "RewardFunction",
-        pos_factor: float = ARM_DEFAULTS.APPROACH_GOAL.POS_FACTOR,
-        neg_factor: float = ARM_DEFAULTS.APPROACH_GOAL.NEG_FACTOR,
-        _goal_update_threshold: float = ARM_DEFAULTS.APPROACH_GOAL._GOAL_UPDATE_THRESHOLD,
-        _on_safe_dist_violation: bool = ARM_DEFAULTS.APPROACH_GOAL._ON_SAFE_DIST_VIOLATION,
+        pos_factor: float = DEFAULTS.ARM_APPROACH_GOAL.POS_FACTOR,
+        neg_factor: float = DEFAULTS.ARM_APPROACH_GOAL.NEG_FACTOR,
+        _goal_update_threshold: float = DEFAULTS.ARM_APPROACH_GOAL._GOAL_UPDATE_THRESHOLD,
+        _on_safe_dist_violation: bool = DEFAULTS.ARM_APPROACH_GOAL._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,
     ):
