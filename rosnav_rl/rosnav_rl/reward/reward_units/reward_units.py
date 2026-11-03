@@ -6,6 +6,7 @@ import numpy as np
 
 from rosnav_rl.cfg.parameters import AgentParameters
 from rosnav_rl.observations.utils.types import (
+    ArmActionTrajectory,
     DistanceAngleMetrics,
     GoalRelativePosition,
     LidarRanges,
@@ -18,7 +19,7 @@ from rosnav_rl.observations.utils.types import (
     SubgoalRelativePosition,
 )
 
-from ..constants import DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
+from ..constants import ARM_DEFAULTS, DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
 from ..reward_function import RewardFunction
 from ..utils import check_params
 from .base_reward_units import RewardUnit
@@ -2422,6 +2423,6 @@ class RewardGoalReachedNavigation(RewardGoalReached):
 
         if target_distance < simulation_state_container.goal_radius:
             self.add_reward(self._reward)
-        
+
         # Always return not done so the episode continues
         self.add_info(self.NOT_DONE_INFO)
