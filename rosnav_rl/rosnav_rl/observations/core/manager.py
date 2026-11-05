@@ -308,7 +308,7 @@ class ObservationManager:
               arena_pedestrian_detections:
                 type: ArenaPedestrianCollector
                 params:
-                  topic: "/task_generator_node/arena_peds"
+                  topic: "/arena_env_node/arena_peds"
                   up_to_date_required: true
 
               arena_pedestrian_relative_locations:
@@ -381,7 +381,11 @@ class ObservationManager:
         deadline = None if timeout is None else time.monotonic() + timeout
         pending = [collector for collector in self._collectors.values() if collector.up_to_date_required]
         while True:
-            pending = [collector for collector in pending if Time.from_msg(collector.latest_msg.header.stamp) < stamp]
+            pending = [
+                collector
+                for collector in pending
+                if collector.latest_msg is None or Time.from_msg(collector.latest_msg.header.stamp) < stamp
+            ]
             if not pending:
                 return True
             if deadline is not None and time.monotonic() > deadline:
