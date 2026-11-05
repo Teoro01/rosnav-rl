@@ -579,6 +579,18 @@ JointStates = Annotated[
     ),
 ]
 
+ArmActionTrajectory = Annotated[
+    tuple[np.ndarray, float],
+    DataSpec(
+        description="Tuple storing a arm joint Trajectory (action_array, time_from_start)",
+        source="/last_arm_action topic (trajectory_msgs/JointTrajectory)",
+        units="action_array: rad, time_from_start: seconds",
+        example=(
+            "([1.57, 0.0, 1.32, 1.2, 1.1, 0.0], 0.1)"
+        ),
+    )
+]
+
 
 # Export all type annotations for easy importing
 __all__ = [
@@ -627,4 +639,5 @@ __all__ = [
     "RobotPoseVector",
     "LocalizationQualityVector",
     "JointStates",
+    "ArmActionTrajectory",
 ]

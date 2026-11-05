@@ -8,17 +8,19 @@ and preprocess the raw data into a clean, usable format.
 from typing import Any
 
 import arena_people_msgs.msg as arena_people_msgs
+import control_msgs.msg as control_msgs
 import geometry_msgs.msg as geometry_msgs
 import nav2_msgs.msg as nav2_msgs
 import nav_msgs.msg as nav_msgs
 import numpy as np
 import people_msgs.msg as people_msgs
 import sensor_msgs.msg as sensor_msgs
-from control_msgs.msg import JointTrajectoryControllerState
+import trajectory_msgs.msg as trajectory_msgs
 
 from ..utils.pose import Pose2DType, pose3d_to_pose2d
 from ..utils.types import (
     ArenaPedestrianDetections,
+    ArmActionTrajectory,
     ImageData,
     JointStates,
     LidarRanges,
@@ -187,12 +189,12 @@ class ArenaPedestrianCollector(Collector[arena_people_msgs.Pedestrians, ArenaPed
         return msg
 
 
-class JointStateCollector(Collector[JointTrajectoryControllerState, JointStates]):
+class JointStateCollector(Collector[control_msgs.JointTrajectoryControllerState, JointStates]):
     """
     Collects and preprocesses joint state data from a ROS topic.
     """
 
-    def _preprocess(self, msg: JointTrajectoryControllerState) -> JointStates:
+    def _preprocess(self, msg: control_msgs.JointTrajectoryControllerState) -> JointStates:
 
         names = msg.joint_names
         positions = msg.feedback.positions
@@ -209,3 +211,19 @@ class JointStateCollector(Collector[JointTrajectoryControllerState, JointStates]
             }
             for name, pos, vel, eff in zip(names, positions, velocities, efforts, strict=False)
         }
+
+class JointTrajectoryCollector(Collector[trajectory_msgs.JointTrajectory], ArmActionTrajectory):
+    """
+    Collects and preprocesses joint trajectory data from a ROS topic.
+    """
+
+    def _preprocess(self, msg: trajectory_msgs.JointTrajectory) -> ArmActionTrajectory:
+
+        if not msg.points:
+            return np.array([]), 0.0
+
+        point = msg.points[0]
+        positions = np.asarray(point.positions, dtype=float)
+        tfs = float(point.time_from_start.sec) + float(point.time_from_start.nanosec) * 1e-9
+
+        return positions, tfs

@@ -2066,28 +2066,24 @@ class RewardLinearVelBoost(RewardUnit):
         """Reset internal state for new episode."""
         pass
 
+# ================ MOBILE MANIPULATION ================ #
 
-@RewardUnitFactory.register("arm_goal_reached")
-class RewardArmGoalReached(RewardUnit):
-    """Reward unit for calculating the reward when arm reaches goal"""
+# ===================== GRASPING ====================== #
+
+@RewardUnitFactory.register("grasp_success")
+class RewardGraspSuccess(RewardUnit):
+    """Reward unit for calculating the reward when object is successfully grasped."""
 
     requires = {
         "arm_dist_angle_to_goal": DistanceAngleMetrics,
-    }
-
-    DONE_INFO = {
-        "is_done": True,
-        "done_reason": DONE_REASONS.SUCCESS,
-        "is_success": True,
     }
 
     @check_params
     def __init__(
         self,
         reward_function: RewardFunction,
-        reward: float = ARM_DEFAULTS.GOAL_REACHED.REWARD,
+        reward: float = ARM_DEFAULTS.GRASP_SUCESS.REWARD,
         goal_radius: float = ARM_DEFAULTS.GOAL_REACHED.GOAL_RADIUS,
-        angle_tolerance: float = ARM_DEFAULTS.GOAL_REACHED.ANGLE_TOLERANCE,
         _on_safe_dist_violation: bool = DEFAULTS.GOAL_REACHED._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,
@@ -2096,7 +2092,6 @@ class RewardArmGoalReached(RewardUnit):
         super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
         self._reward = reward
         self._goal_radius = goal_radius
-        self._angle_tolerance = angle_tolerance
 
     def check_parameters(self, *args: Any, **kwargs: Any):
         if self._reward < 0.0:
@@ -2113,20 +2108,18 @@ class RewardArmGoalReached(RewardUnit):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        """Calculates the reward and updates the information when the goal is reached.
+        """
+        Calculates the reward and updates the information when the goal is reached.
 
         Args:
             arm_dist_angle_to_goal: Distance and rotation error from the end effector to the arm goal.
         """
         target_distance = arm_dist_angle_to_goal[0]
-        rotational_error = arm_dist_angle_to_goal[1]
 
         position_reached = target_distance < self._goal_radius
-        orientation_reached = rotational_error < self._angle_tolerance
 
-        if position_reached and orientation_reached:
+        if position_reached:
             self.add_reward(self._reward)
-            self.add_info(self.DONE_INFO)
 
 
 @RewardUnitFactory.register("arm_approach_goal")
@@ -2406,9 +2399,14 @@ class RewardArmRootVelocityDifference(RewardUnit):
 @RewardUnitFactory.register("goal_reached_navigation")
 class RewardGoalReachedNavigation(RewardGoalReached):
     """
-    Reward unit that provides a positive reward when the robot reaches 
+    Reward unit that provides a positive reward when the robot reaches
     within the goal radius, but does NOT terminate the episode.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._reward_given = False
+        self._last_goal = None
 
     def __call__(
         self,
