@@ -9,6 +9,7 @@ from rosnav_rl.observations.utils.types import (
     ArmActionTrajectory,
     DistanceAngleMetrics,
     GoalRelativePosition,
+    GripperState,
     LidarRanges,
     PedestrianRelativeLocations,
     PedestrianRelativeVelocities,
@@ -38,7 +39,7 @@ __all__ = [
     "RewardRootVelocityDifference",
     "RewardTwoFactorVelocityDifference",
     "RewardActiveHeadingDirection",
-    "RewardArmGoalReached",
+    "RewardGraspSuccess",
     "RewardArmApproachGoal",
 ]
 
@@ -2075,7 +2076,8 @@ class RewardGraspSuccess(RewardUnit):
     """Reward unit for calculating the reward when object is successfully grasped."""
 
     requires = {
-        "arm_dist_angle_to_goal": DistanceAngleMetrics,
+        "arm_dist_angle_to_goal": DistanceAngleMetrics, # TODO look at arm_goal_in_ee_frame
+        "gripper_state": GripperState,
     }
 
     @check_params
@@ -2083,7 +2085,8 @@ class RewardGraspSuccess(RewardUnit):
         self,
         reward_function: RewardFunction,
         reward: float = ARM_DEFAULTS.GRASP_SUCESS.REWARD,
-        goal_radius: float = ARM_DEFAULTS.GOAL_REACHED.GOAL_RADIUS,
+        min_dist: float = ARM_DEFAULTS.GRASP_SUCESS.MIN_TARGET_DIST,
+        min_rad: float = ARM_DEFAULTS.GRASP_SUCESS.MIN_TARGET_RAD,
         _on_safe_dist_violation: bool = DEFAULTS.GOAL_REACHED._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,
@@ -2091,12 +2094,13 @@ class RewardGraspSuccess(RewardUnit):
 
         super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
         self._reward = reward
-        self._goal_radius = goal_radius
+        self._min_dist = min_dist
+        self._min_rad = min_rad
 
     def check_parameters(self, *args: Any, **kwargs: Any):
         if self._reward < 0.0:
             warn_msg = (
-                f"Reconsider this reward. "
+                f"Reconsider this reward."
                 f"Negative rewards may lead to unfavorable behaviors. "
                 f"Current value: {self._reward}"
             )
@@ -2105,6 +2109,7 @@ class RewardGraspSuccess(RewardUnit):
     def __call__(
         self,
         arm_dist_angle_to_goal: DistanceAngleMetrics,
+        gripper_state: GripperState,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -2114,11 +2119,25 @@ class RewardGraspSuccess(RewardUnit):
         Args:
             arm_dist_angle_to_goal: Distance and rotation error from the end effector to the arm goal.
         """
-        target_distance = arm_dist_angle_to_goal[0]
 
-        position_reached = target_distance < self._goal_radius
+        # 1. Distance to target below min distance error
+        # 2. Rad error to target below min rad error
+        # 3. Gripper stalled but not closed  (gripper open position = 0.0 and closed position = 0.8 for specific gripper in use. Not always the case?)
+        # 4. Target relative position locked (can only be discovered after grasp success or failure :/ )
 
-        if position_reached:
+        dist_err = arm_dist_angle_to_goal[0] # Distance from ee to target
+        rad_err  = arm_dist_angle_to_goal[1] # Angle error (0 when pointed towards target)
+
+        near_target = dist_err <= self._min_dist
+        alignment  = rad_err <= self._min_rad
+        is_at_target = near_target and alignment
+
+        is_stalled = gripper_state["stalled"]
+        pos = gripper_state["position"]
+
+        has_gripped_object = is_stalled and pos < 0.8 # TODO hardcoded value bad
+
+        if is_at_target and has_gripped_object:
             self.add_reward(self._reward)
 
 

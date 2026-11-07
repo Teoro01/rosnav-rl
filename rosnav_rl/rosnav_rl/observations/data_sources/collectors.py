@@ -21,6 +21,7 @@ from ..utils.pose import Pose2DType, pose3d_to_pose2d
 from ..utils.types import (
     ArenaPedestrianDetections,
     ArmActionTrajectory,
+    GripperState,
     ImageData,
     JointStates,
     LidarRanges,
@@ -227,3 +228,20 @@ class JointTrajectoryCollector(Collector[trajectory_msgs.JointTrajectory], ArmAc
         tfs = float(point.time_from_start.sec) + float(point.time_from_start.nanosec) * 1e-9
 
         return positions, tfs
+
+class GripperStateCollector(Collector[control_msgs.GripperCommand.Feedback, GripperState]):
+    """
+    Collects gripper state from the gripper action server feedback topic.
+
+    Subscribes to the action feedback topic (e.g. ``<gripper_controller>/gripper_cmd/_action/feedback``)
+    and exposes position, effort, stalled, and reached_goal.
+    """
+
+    def _preprocess(self, msg: control_msgs.GripperCommand.Feedback) -> GripperState:
+        return {
+            "position": float(msg.position),
+            "effort"  : float(msg.effort),
+            "stalled" : bool(msg.stalled),
+            "reached_goal" : bool(msg.reached_goal),
+        }
+

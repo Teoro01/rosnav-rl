@@ -591,6 +591,17 @@ ArmActionTrajectory = Annotated[
     )
 ]
 
+GripperState = Annotated[
+    dict[str, float | bool],
+    DataSpec(
+        description="Gripper state from action feedback",
+        source="gripper action feedback topic (_action/feedback)",
+        units="position: meters, effort: Newtons",
+        constraints="keys: position, effort, stalled, reached_goal",
+        example="{'position': 0.085, 'effort': 5.0, 'stalled': False, 'reached_goal': True}",
+    ),
+]
+
 
 # Export all type annotations for easy importing
 __all__ = [
@@ -640,4 +651,5 @@ __all__ = [
     "LocalizationQualityVector",
     "JointStates",
     "ArmActionTrajectory",
+    "GripperState",
 ]

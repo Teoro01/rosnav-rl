@@ -106,8 +106,8 @@ class DEFAULTS:
 class ARM_DEFAULTS:
     class GRASP_SUCESS:
         REWARD: float = 15.0
-        GOAL_RADIUS: float = 0.05
-        ANGLE_TOLERANCE: float = 0.2
+        MIN_TARGET_DIST: float = 0.05
+        MIN_TARGET_RAD: float = 0.2
         _ON_SAFE_DIST_VIOLATION: bool = True
 
     class APPROACH_GOAL:
