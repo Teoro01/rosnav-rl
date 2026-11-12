@@ -14,13 +14,19 @@ import nav2_msgs.msg as nav2_msgs
 import nav_msgs.msg as nav_msgs
 import numpy as np
 import people_msgs.msg as people_msgs
+import rclpy
+import ros_gz_interfaces.msg as ros_gz_interfaces
 import sensor_msgs.msg as sensor_msgs
+import tf2_ros
 import trajectory_msgs.msg as trajectory_msgs
 
 from ..utils.pose import Pose2DType, pose3d_to_pose2d
 from ..utils.types import (
     ArenaPedestrianDetections,
     ArmActionTrajectory,
+    ContactData,
+    ContactDataSpec,
+    ContactPoint,
     GripperState,
     ImageData,
     JointStates,
@@ -244,4 +250,79 @@ class GripperStateCollector(Collector[control_msgs.GripperCommand.Feedback, Grip
             "stalled" : bool(msg.stalled),
             "reached_goal" : bool(msg.reached_goal),
         }
+
+class ContactCollector(Collector[ros_gz_interfaces.Contacts, ContactData]):
+    """Collects contact state from a Gazebo contact sensor."""
+
+    def __init__(
+        self,
+        name: str,
+        topic: str,
+        node: rclpy.node.Node | None = None,
+        timeout: float = 0.5,
+        up_to_date_required: bool = False,
+        **kwargs: Any,
+    ):
+        if up_to_date_required:
+            raise ValueError(
+                "ContactCollector must not require up-to-date data: gz contact "
+                "sensors stop publishing when the contact ends, so a freshness "
+                "requirement would block forever."
+            )
+
+        super().__init__(
+            name, topic, node, up_to_date_required=False, **kwargs
+        )
+
+        # gz-sim only publishes while a contact exists, so a reading must expire.
+        self.timeout = timeout
+
+    def _preprocess(self, msg: ros_gz_interfaces.Contacts) -> ContactData:
+        contacts: list[ContactPoint] = []
+
+        for contact in msg.contacts:
+            other: str = contact.collision2.name
+
+            n = len(contact.positions)
+            has_normal = len(contact.normals) == n
+            has_depth = len(contact.depths) == n
+            has_wrench = len(contact.wrenches) == n
+
+            for i, pos in enumerate(contact.positions):
+                normal = np.zeros(3, dtype=np.float32)
+                if has_normal:
+                    raw = contact.normals[i]
+                    normal = np.array([raw.x, raw.y, raw.z], dtype=np.float32)
+                    length = float(np.linalg.norm(normal))
+                    if length > 1e-6:
+                        normal /= length
+
+                depth = float(contact.depths[i]) if has_depth else 0.0
+
+                wrench = None
+                if has_wrench:
+                    w = contact.wrenches[i].body_1_wrench
+                    wrench = np.array(
+                        [w.force.x, w.force.y, w.force.z,
+                         w.torque.x, w.torque.y, w.torque.z],
+                        dtype=np.float32,
+                    )
+
+                contacts.append(
+                    ContactPoint(
+                        other=other,
+                        position=np.array([pos.x, pos.y, pos.z], dtype=np.float32),
+                        normal=normal,
+                        depth=depth,
+                        wrench=wrench,
+                    )
+                )
+
+        return ContactData(tuple(contacts))
+
+    def get_observation(self) -> ContactData:
+        """The sensor only publishes while a contact exists; expire stale readings."""
+        if self._clock is not None and self.age > self.timeout:
+            return ContactData()
+        return self._value if self._value is not None else ContactData()
 

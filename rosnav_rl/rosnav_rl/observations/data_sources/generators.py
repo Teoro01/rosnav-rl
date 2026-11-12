@@ -36,9 +36,13 @@ from ..utils.semantic import (
 from ..utils.types import (
     ArenaPedestrianDetections,
     ArenaPedestrianStates,
+    ContactData,
+    ContactDataSpec,
+    ContactPoint,
     CrowdTimeToContact,
     DistanceAngleMetrics,
     GoalLocation,
+    GraspState,
     LidarRanges,
     PedestrianDetections,
     PedestrianDistances,
@@ -1210,7 +1214,7 @@ class ArenaPedestrianStateGenerator(Generator[ArenaPedestrianStates]):
         return self._animation_states_buffer
 
 
-class EndEffectorPoseTFGenerator(Generator[Pose3D]):
+class ObjectPoseTFGenerator(Generator[Pose3D]):
     """Pose [x, y, z, qx, qy, qz, qw] of the robot's end effector frame in target_frame from the TF tree."""
 
     requires = {}
@@ -1228,9 +1232,9 @@ class EndEffectorPoseTFGenerator(Generator[Pose3D]):
         super().__init__(name, **kwargs)
 
         if not node:
-            raise ValueError("EndEffectorPoseTFGenerator requires a ROS 2 node.")
+            raise ValueError("ObjectPoseTFGenerator requires a ROS 2 node.")
         if not source_frame:
-            raise ValueError("EndEffectorPoseTFGenerator requires a non-empty source_frame.")
+            raise ValueError("ObjectPoseTFGenerator requires a non-empty source_frame.")
 
         self._node = node
         self._tf_buffer = tf2_ros.Buffer(node=self._node)
@@ -1463,3 +1467,115 @@ class CrowdTimeToContactGenerator(Generator[CrowdTimeToContact]):
         out[2] = float(np.count_nonzero(ttc < self.imminent))
         out[3] = ttc[ahead].min() if ahead.any() else self.horizon
         return out
+
+class GraspStateGenerator(Generator[GraspState]):
+    """Grasp state generated from contact sensors."""
+
+    requires = {
+        "left_fingertip_contact": ContactDataSpec,
+        "right_fingertip_contact": ContactDataSpec,
+    }
+
+    HOLD_S = 0.1
+
+    def __init__(
+        self,
+        name: str,
+        node: rclpy.Node | None = None,
+        left_frame: str = "",
+        right_frame: str = "",
+        target_frame: str = "odom",
+        inside_tolerance: float = 0.0,
+        min_normal_alignment: float = 0.5,
+        **kwargs: Any,
+    ):
+        super().__init__(name, **kwargs)
+        if not node:
+            raise ValueError("GraspStateGenerator requires a ROS 2 node.")
+        if not left_frame or not right_frame:
+            raise ValueError("GraspStateGenerator requires left_frame and right_frame.")
+
+        self._buffer = tf2_ros.Buffer(node=node)
+        self._listener = tf2_ros.TransformListener(self._buffer, node)
+        self._left, self._right, self._target_frame = left_frame, right_frame, target_frame
+        self._tol, self._align = inside_tolerance, min_normal_alignment
+
+    def _lookup(self) -> tuple[np.ndarray, np.ndarray] | None:
+            if self._buffer is None:
+                return None
+            try:
+                left = self._buffer.lookup_transform(
+                    self._target_frame, self._left, rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=0.0),
+                )
+                right = self._buffer.lookup_transform(
+                    self._target_frame, self._right, rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=0.0),
+                )
+            except tf2_ros.TransformException:
+                return None
+
+            p_left = np.array([
+                left.transform.translation.x,
+                left.transform.translation.y,
+                left.transform.translation.z
+                ], dtype=np.float64)
+            p_right = np.array([
+                right.transform.translation.x,
+                right.transform.translation.y,
+                right.transform.translation.z
+            ], dtype=np.float64)
+
+            return p_left, p_right
+
+    def _inward(
+        self,
+        reading: ContactData,
+        p_own: np.ndarray,
+        p_other: np.ndarray,
+        tol: float,
+        min_align: float
+    ) -> tuple[ContactPoint, ...]:
+        """Contacts on the jaw-facing side of one pad."""
+        if reading is None:
+            return ()
+        axis = p_other - p_own
+        length = np.linalg.norm(axis)
+        if length < 1e-6:
+            return ()
+        axis /= length
+        out = []
+        for c in reading.contacts:
+            aligned = np.linalg.norm(c.normal) < 1e-6 or abs(c.normal @ axis) >= min_align
+            if aligned and (c.position - p_own) @ axis > tol:
+                out.append(c)
+        return tuple(out)
+
+    def _model(self, name: str) -> str:
+        return name.split("::", 1)[0]
+
+    def _generate(
+            self,
+            left_fingertip_contact: ContactData,
+            right_fingertip_contact: ContactData,
+            **kwargs : Any
+        ) -> GraspState:
+
+        frames = self._lookup()
+        now = time.monotonic()
+        if frames is None:
+            if self._last_frames is None or now - self._last_ok >= self.HOLD_S:
+                return GraspState()
+            frames = self._last_frames
+        else:
+            self._last_frames, self._last_ok = frames, now
+
+        p_left, p_right = frames
+        left  = self._inward(left_fingertip_contact,  p_left,  p_right, self._tol, self._align)
+        right = self._inward(right_fingertip_contact, p_right, p_left,  self._tol, self._align)
+
+        common = {self._model(c.other) for c in left} & {self._model(c.other) for c in right}
+        common.discard("")
+        if not common:
+            return GraspState()
+        return GraspState(other=sorted(common))

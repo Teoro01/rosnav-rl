@@ -211,6 +211,18 @@ def set_end_effector_frames(config: dict[str, Any], robot_frame: str, tip_link: 
             params["target_frame"] = posixpath.join(robot_frame, "odom")
 
 
+def set_grasp_frames(config: dict[str, Any], robot_frame: str) -> None:
+    """Prefix every GraspStateGenerator's fingertip frames with the robot TF namespace."""
+    for ds in config.get("datasources", {}).values():
+        if ds.get("type") == "GraspStateGenerator":
+            params = ds.setdefault("params", {})
+            for key in ("left_frame", "right_frame"):
+                frame = params.get(key)
+                if frame:
+                    params[key] = posixpath.join(robot_frame, frame)
+            params["target_frame"] = posixpath.join(robot_frame, "odom")
+
+
 def set_pedestrians_topic(config: dict[str, Any], robot_ns: str) -> None:
     """Point every Arena pedestrian collector in *config* at the arena_peds topic of the env that owns *robot_ns*."""
     for ds in config.get("datasources", {}).values():

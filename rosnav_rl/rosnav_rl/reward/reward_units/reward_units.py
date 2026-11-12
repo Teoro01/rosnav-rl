@@ -6,21 +6,22 @@ import numpy as np
 
 from rosnav_rl.cfg.parameters import AgentParameters
 from rosnav_rl.observations.utils.types import (
-    ArmActionTrajectory,
     DistanceAngleMetrics,
     GoalRelativePosition,
-    GripperState,
+    GraspState,
+    GraspStateSpec,
     LidarRanges,
     PedestrianRelativeLocations,
     PedestrianRelativeVelocities,
     PedestrianTypeMinDistances,
     Pose2D,
+    Pose3D,
     RobotActionVector,
     SafetyStatus,
     SubgoalRelativePosition,
 )
 
-from ..constants import ARM_DEFAULTS, DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
+from ..constants import DEFAULTS, DONE_REASONS, REWARD_CONSTANTS
 from ..reward_function import RewardFunction
 from ..utils import check_params
 from .base_reward_units import RewardUnit
@@ -40,7 +41,8 @@ __all__ = [
     "RewardTwoFactorVelocityDifference",
     "RewardActiveHeadingDirection",
     "RewardGraspSuccess",
-    "RewardArmApproachGoal",
+    "RewardObjectRetention",
+    "RewardDeliverySuccess",
 ]
 
 
@@ -2071,115 +2073,263 @@ class RewardLinearVelBoost(RewardUnit):
 
 # ===================== GRASPING ====================== #
 
-@RewardUnitFactory.register("grasp_success")
+@RewardUnitFactory.register("grasp")
 class RewardGraspSuccess(RewardUnit):
-    """Reward unit for calculating the reward when object is successfully grasped."""
+    """Rewards grasping the target object."""
 
     requires = {
-        "arm_dist_angle_to_goal": DistanceAngleMetrics, # TODO look at arm_goal_in_ee_frame
-        "gripper_state": GripperState,
+        "grasp_state": GraspStateSpec,
+    }
+
+    def __init__(
+        self,
+        reward_function: RewardFunction,
+        reward: float = DEFAULTS.GRASP.REWARD,
+        target: str = DEFAULTS.MANIPULATION.TARGET,
+        _on_safe_dist_violation: bool = DEFAULTS.GRASP._ON_SAFE_DIST_VIOLATION,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
+        self._reward = reward
+        self._target = target
+        self._was_grasping = False
+
+    def check_parameters(self) -> None:
+        if self._reward < 0.0:
+            self._report_warning(
+                f"grasp reward should be positive. Current value: {self._reward}"
+            )
+
+    def __call__(
+        self,
+        grasp_state: GraspStateSpec,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+
+        grasping = grasp_state.grasping and self._target in grasp_state.other
+
+        # Reward the onset, not every step of a sustained grasp.
+        if grasping and not self._was_grasping:
+            self.add_reward(self._reward)
+        self._was_grasping = grasping
+
+    def reset(self) -> None:
+        self._was_grasping = False
+
+@RewardUnitFactory.register("object_retention")
+class RewardObjectRetention(RewardUnit):
+    """Penalise losing the target after it has been stably grasped.
+
+    Fires once per drop event, once the target has been absent from the grasp
+    state for ``drop_steps`` consecutive steps. Suppressed near the delivery
+    zone, where releasing the object is the intended action. Optionally ends
+    the episode as a mission failure.
+    """
+
+    requires = {
+        "grasp_state": GraspStateSpec,
+        "robot_pose": Pose2D,
+    }
+
+    DONE_INFO = {
+        "is_done": True,
+        "done_reason": DONE_REASONS.DROP,
+        "is_success": False,
     }
 
     @check_params
     def __init__(
         self,
         reward_function: RewardFunction,
-        reward: float = ARM_DEFAULTS.GRASP_SUCESS.REWARD,
-        min_dist: float = ARM_DEFAULTS.GRASP_SUCESS.MIN_TARGET_DIST,
-        min_rad: float = ARM_DEFAULTS.GRASP_SUCESS.MIN_TARGET_RAD,
-        _on_safe_dist_violation: bool = DEFAULTS.GOAL_REACHED._ON_SAFE_DIST_VIOLATION,
+        reward: float = DEFAULTS.OBJECT_RETENTION.REWARD,
+        target: str = DEFAULTS.MANIPULATION.TARGET,
+        acquire_steps: int = DEFAULTS.MANIPULATION.ACQUIRE_STEPS,
+        drop_steps: int = DEFAULTS.MANIPULATION.DROP_STEPS,
+        delivery_xy: tuple[float, float] = DEFAULTS.MANIPULATION.DELIVERY_XY,
+        delivery_radius: float = DEFAULTS.MANIPULATION.DELIVERY_RADIUS,
+        terminate: bool = DEFAULTS.OBJECT_RETENTION.TERMINATE,
+        _on_safe_dist_violation: bool = DEFAULTS.OBJECT_RETENTION._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,
     ) -> None:
-
         super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
         self._reward = reward
-        self._min_dist = min_dist
-        self._min_rad = min_rad
+        self._target = target
+        self._acquire_steps = max(1, int(acquire_steps))
+        self._drop_steps = max(1, int(drop_steps))
+        self._delivery_xy = delivery_xy
+        self._delivery_radius = delivery_radius
+        self._terminate = terminate
 
-    def check_parameters(self, *args: Any, **kwargs: Any):
-        if self._reward < 0.0:
-            warn_msg = (
-                f"Reconsider this reward."
-                f"Negative rewards may lead to unfavorable behaviors. "
-                f"Current value: {self._reward}"
+        self._held_steps = 0
+        self._lost_steps = 0
+        self._ever_grasped = False
+
+    def check_parameters(self) -> None:
+        if self._reward > 0.0:
+            self._report_warning(
+                f"object_retention reward should be negative. Current value: {self._reward}"
             )
-            self._report_warning(warn_msg)
+        if self._delivery_radius <= 0.0:
+            self._report_warning(
+                f"delivery_radius must be positive. Current value: {self._delivery_radius}"
+            )
+
+    def reset(self) -> None:
+        super().reset()
+        self._held_steps = 0
+        self._lost_steps = 0
+        self._ever_grasped = False
+
+    def _at_delivery(self, robot_pose: Pose2D) -> bool:
+        dx = float(robot_pose[0]) - float(self._delivery_xy[0])
+        dy = float(robot_pose[1]) - float(self._delivery_xy[1])
+        return float(np.hypot(dx, dy)) <= self._delivery_radius
 
     def __call__(
         self,
-        arm_dist_angle_to_goal: DistanceAngleMetrics,
-        gripper_state: GripperState,
+        grasp_state: GraspState,
+        robot_pose: Pose2D,
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        """
-        Calculates the reward and updates the information when the goal is reached.
+        if self._target in grasp_state.other:
+            self._held_steps += 1
+            self._lost_steps = 0
+            if self._held_steps >= self._acquire_steps:
+                self._ever_grasped = True
+            return
 
-        Args:
-            arm_dist_angle_to_goal: Distance and rotation error from the end effector to the arm goal.
-        """
+        self._held_steps = 0
 
-        # 1. Distance to target below min distance error
-        # 2. Rad error to target below min rad error
-        # 3. Gripper stalled but not closed  (gripper open position = 0.0 and closed position = 0.8 for specific gripper in use. Not always the case?)
-        # 4. Target relative position locked (can only be discovered after grasp success or failure :/ )
+        if not self._ever_grasped:
+            return
 
-        dist_err = arm_dist_angle_to_goal[0] # Distance from ee to target
-        rad_err  = arm_dist_angle_to_goal[1] # Angle error (0 when pointed towards target)
+        if self._at_delivery(robot_pose):
+            self._lost_steps = 0
+            return
 
-        near_target = dist_err <= self._min_dist
-        alignment  = rad_err <= self._min_rad
-        is_at_target = near_target and alignment
+        self._lost_steps += 1
+        if self._lost_steps != self._drop_steps:
+            return
 
-        is_stalled = gripper_state["stalled"]
-        pos = gripper_state["position"]
+        self.add_reward(self._reward)
+        self.add_info({"retention_violation": True})
+        if self._terminate:
+            self.add_info(self.DONE_INFO)
 
-        has_gripped_object = is_stalled and pos < 0.8 # TODO hardcoded value bad
-
-        if is_at_target and has_gripped_object:
-            self.add_reward(self._reward)
-
-
-@RewardUnitFactory.register("arm_approach_goal")
-class RewardArmApproachGoal(RewardUnit):
-    """Reward unit for arm goal approach behavior with distance-based computation.
-
-    Provides a positive delta-reward for moving the end-effector closer to the target
-    and a negative delta-reward for moving away. This creates a potential field that
-    guides the arm toward the goal without punishing it just for starting far away.
-
-    Technical Specifications:
-    - Distance-Based Reward: Delta potential field using step-by-step position differences
-    - Adaptive Thresholds: Distance-jump detection to prevent reward noise if goal teleports
-
-    Configuration:
-    - pos_factor: Positive reward scaling for moving closer
-    - neg_factor: Negative reward scaling for moving away (should be > pos_factor)
-    - _goal_update_threshold: Maximum allowed single-step distance change before ignoring (jump detection)
-    """
+@RewardUnitFactory.register("delivery_success")
+class RewardDeliverySuccess(RewardUnit):
+    """Rewards Sucessfull delivery of a target object to a target loacation."""
 
     requires = {
-        "arm_dist_angle_to_goal": DistanceAngleMetrics,
+        "grasp_state": GraspStateSpec,
+        "robot_pose": Pose2D,
+    }
+
+    DONE_INFO = {
+        "is_done": True,
+        "done_reason": DONE_REASONS.SUCCESS,
+        "is_success": True,
     }
 
     @check_params
     def __init__(
         self,
-        reward_function: "RewardFunction",
-        pos_factor: float = DEFAULTS.ARM_APPROACH_GOAL.POS_FACTOR,
-        neg_factor: float = DEFAULTS.ARM_APPROACH_GOAL.NEG_FACTOR,
-        _goal_update_threshold: float = DEFAULTS.ARM_APPROACH_GOAL._GOAL_UPDATE_THRESHOLD,
+        reward_function: RewardFunction,
+        reward: float = DEFAULTS.DELIVERY.REWARD,
+        target: str = DEFAULTS.MANIPULATION.TARGET,
+        acquire_steps: int = DEFAULTS.MANIPULATION.ACQUIRE_STEPS,
+        drop_steps: int = DEFAULTS.MANIPULATION.DROP_STEPS,
+        delivery_xy: tuple[float, float] = DEFAULTS.MANIPULATION.DELIVERY_XY,
+        delivery_radius: float = DEFAULTS.MANIPULATION.DELIVERY_RADIUS,
+        terminate: bool = DEFAULTS.DELIVERY.TERMINATE,
+        _on_safe_dist_violation: bool = DEFAULTS.DELIVERY._ON_SAFE_DIST_VIOLATION,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
+        self._reward = reward
+        self._target = target
+        self._acquire_steps = max(1, int(acquire_steps))
+        self._drop_steps = max(1, int(drop_steps))
+        self._delivery_xy = delivery_xy
+        self._delivery_radius = delivery_radius
+        self._terminate = terminate
+
+        self._held_steps = 0
+        self._settled_steps = 0
+        self._ever_grasped = False
+
+    def check_parameters(self) -> None:
+        if self._reward < 0.0:
+            self._report_warning(
+                f"Delivery success reward should be positive. Current value: {self._reward}"
+            )
+
+    def reset(self) -> None:
+        self._held_steps = 0
+        self._settled_steps = 0
+        self._ever_grasped = False
+
+    def _at_delivery(self, robot_pose: Pose2D) -> bool:
+        dx = float(robot_pose[0] - self._delivery_xy[0])
+        dy = float(robot_pose[1] - self._delivery_xy[1])
+        return float(np.hypot(dx, dy)) <= self._delivery_radius
+
+    def __call__(self, grasp_state: GraspStateSpec, robot_pose: Pose2D, *args: Any, **kwargs: Any):
+        if self._target in grasp_state.other:
+            self._held_steps += 1
+            self._settled_steps = 0
+            if self._held_steps >= self._acquire_steps:
+                self._ever_grasped = True
+            return
+
+        self._held_steps = 0
+
+        if not (self._ever_grasped and self._at_delivery(robot_pose)):
+            self._settled_steps = 0
+            return
+
+        self._settled_steps += 1
+        if self._settled_steps != self._drop_steps:
+            return
+
+        self.add_reward(self._reward)
+        self.add_info(self.DONE_INFO)
+
+
+# =================== ARM MOVEMENT ==================== #
+
+@RewardUnitFactory.register("arm_reach")
+class RewardArmReach(RewardUnit):
+
+    requires = {
+        "end_effector_pose": Pose3D,
+        "target_pose": Pose3D,
+        "robot_pose": Pose2D,
+    }
+
+    @check_params
+    def __init__(
+        self,
+        reward_function: RewardFunction,
+        pos_factor: float = DEFAULTS.ARM_REACH.POS_FACTOR,
+        neg_factor: float = DEFAULTS.ARM_REACH.NEG_FACTOR,
+        reach_radius: float = DEFAULTS.ARM_REACH.REACH_RADIUS,
+        reach_blend: float = DEFAULTS.ARM_REACH.REACH_BLEND,
         _on_safe_dist_violation: bool = DEFAULTS.ARM_APPROACH_GOAL._ON_SAFE_DIST_VIOLATION,
         *args: Any,
         **kwargs: Any,
-    ):
-        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
+    ) -> None:
         self._pos_factor = pos_factor
         self._neg_factor = neg_factor
-        self._goal_update_threshold = _goal_update_threshold
-
-        self.last_distance = None
+        self._reach_radius = reach_radius
+        self._reach_blend = reach_blend
+        self._prev_d: float | None = None
+        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
 
     def check_parameters(self, *args: Any, **kwargs: Any):
         if self._pos_factor < 0 or self._neg_factor < 0:
@@ -2198,222 +2348,35 @@ class RewardArmApproachGoal(RewardUnit):
             )
             self._report_warning(warn_msg)
 
+    def _get_coefficient(self, robot_pose: Pose2D, target_pose: Pose3D) -> float:
+        d = float(np.hypot(robot_pose - target_pose[:2]))
+        c = np.clip(self._reach_radius + self._reach_blend - d / (2 * self._reach_blend), 0.0, 0.1)
+        return c
+
     def __call__(
         self,
-        arm_dist_angle_to_goal: np.ndarray,
+        end_effector_pose: Pose3D,
+        target_pose: Pose3D,
+        robot_pose: Pose2D,
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        """Calculate reward based on change in end-effector distance.
+        d = float(np.linalg.norm(end_effector_pose[:3] - target_pose[:3]))
+        prev, self._prev_d = self._prev_d, d
+        if prev is None:
+            return
 
-        Args:
-            arm_dist_angle_to_goal: np.ndarray (2,) [distance_m, rotation_error_rad]
-        """
-        current_distance = float(arm_dist_angle_to_goal[0])
-
-        if self.last_distance is not None:
-            distance_change = self.last_distance - current_distance
-
-            if abs(distance_change) < self._goal_update_threshold:
-                factor = self._pos_factor if distance_change > 0 else self._neg_factor
-                self.add_reward(float(factor * distance_change))
-
-        self.last_distance = current_distance
+        delta = prev - d
+        coefficient = self._get_coefficient(robot_pose, target_pose)
+        reward = self._pos_factor * delta if delta > 0.0 else self._neg_factor
+        self.add_reward(coefficient * reward)
 
     def reset(self):
         """Reset internal state for a new episode."""
-        self.last_distance = None
+        self._prev_d = None
 
-@RewardUnitFactory.register("arm_abrupt_velocity_change")
-class RewardArmAbruptVelocityChange(RewardUnit):
-    """Reward unit for penalizing abrupt velocity changes in arm joints to encourage smooth movements.
 
-    Detects sudden changes in joint velocity between consecutive actions and applies
-    negative rewards based on the magnitude of change. Promotes smooth, continuous
-    movement patterns while penalizing jerky or erratic behavior.
-
-    Technical Specifications:
-    - Velocity Smoothness: Multi-dimensional velocity change detection
-    - Quartic Penalty: Non-linear penalty scaling (change^4) for strong smoothness
-
-    Configuration:
-    - vel_factor: Penalty factor for arm joints
-    - _on_safe_dist_violation: Enable penalty during safety violations
-
-    Output Behavior: reward = -sum((velocity_diff^4 / 100) * factor) per dimension
-
-    Applications: Smooth motion control, jerk reduction, and arm movement patterns.
-    """
-
-    requires = {
-        "last_arm_action": ArmActionTrajectory
-    }
-
-    @check_params
-    def __init__(
-        self,
-        reward_function: RewardFunction,
-        vel_factor: float = ARM_DEFAULTS.ABRUPT_VEL_CHANGE.VEL_FACTOR,
-        _on_safe_dist_violation: bool = ARM_DEFAULTS.ABRUPT_VEL_CHANGE._ON_SAFE_DIST_VIOLATION,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Initialize abrupt velocity change penalty unit with dimensional weighting.
-
-        Args:
-            reward_function: The reward function object managing this unit
-            vel_factor: Penalty factor for arm joints
-            _on_safe_dist_violation: Enable penalty during safety violations
-            *args: Variable arguments
-            **kwargs: Keyword arguments
-        """
-        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
-
-        self._vel_factor = vel_factor
-        self.last_action = None
-        self.last_vel = None
-
-    def __call__(
-        self,
-        last_arm_action: ArmActionTrajectory,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Calculate penalty for abrupt velocity changes across configured dimensions.
-
-        Compares current position target with previous action to detect abrupt changes,
-        applying quartic penalties to encourage smooth, continuous motion.
-
-        Args:
-            last_action (ArmActionTrajectory): Robot position target command in joint frame
-                - Shape: (arm dof,)
-                - Units: [[rads, rads, ..., rads], seconds]
-                - Source: robot controller or action
-                - Example: "([0.0, 1.57, 1.23], 0.1)" (compared with previous action for smoothness)
-        """
-
-        curr_pos, dt = last_arm_action
-
-        if dt <= 0:
-            return
-
-        if self.last_action is not None:
-            prev_pos, _prev_dt = self.last_action
-            vel = (curr_pos - prev_pos) / dt
-
-            if self.last_vel is not None:
-                vel_diff = vel - self.last_vel
-                penalty = np.sum((vel_diff**4 / 100) * self._vel_factor)
-                self.add_reward(-penalty)
-
-            self.last_vel = vel
-
-        # Update tracking state
-        self.last_action = (curr_pos.copy(), dt)
-
-    def reset(self):
-        """Reset internal state for new episode."""
-        self.last_action = None
-        self.last_vel = None
-
-@RewardUnitFactory.register("arm_root_velocity_difference")
-class RewardArmRootVelocityDifference(RewardUnit):
-    """Reward unit for promoting consistent root velocity differences.
-
-    Calculates the L2 norm of velocity differences between consecutive actions
-    and provides positive rewards when velocity changes remain below a threshold,
-    encouraging smooth and consistent motion patterns.
-
-    Technical Specifications:
-    - Root Velocity Metric: L2 norm of squared velocity differences
-    - Threshold-Based Reward: Positive rewards for consistent motion under threshold
-    - Consistency Promotion: Encourages predictable velocity command patterns
-
-    Configuration:
-    - k: Threshold value for velocity difference normalization
-    - _on_safe_dist_violation: Enable reward during safety violations
-
-    Output Behavior: reward = (1 - vel_diff) / k when vel_diff < k, else 0
-
-    Applications: Smooth motion control, velocity consistency, and stable navigation.
-    """
-
-    requires = {
-        "last_arm_action": ArmActionTrajectory
-    }
-
-    @check_params
-    def __init__(
-        self,
-        reward_function: RewardFunction,
-        k: float = ARM_DEFAULTS.ROOT_VEL_DIFF.K,
-        _on_safe_dist_violation: bool = ARM_DEFAULTS.ROOT_VEL_DIFF._ON_SAFE_DIST_VIOLATION,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Initialize root velocity difference reward unit with threshold.
-
-        Args:
-            reward_function: The reward function object managing this unit
-            k: Threshold value for velocity difference normalization
-            _on_safe_dist_violation: Enable reward during safety violations
-            *args: Variable arguments
-            **kwargs: Keyword arguments
-        """
-        super().__init__(reward_function, _on_safe_dist_violation, *args, **kwargs)
-
-        self._k = k
-        self.last_action = None
-        self.last_vel = None
-
-    def __call__(
-        self,
-        last_arm_action: ArmActionTrajectory,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Calculate reward for consistent root velocity differences.
-
-        Computes L2 norm of velocity changes and provides positive reward when
-        changes remain below threshold, promoting smooth motion consistency.
-
-        Args:
-            last_arm_action (ArmActionTrajectory): Arm jointTrajectory command in joint frame
-                - Shape: (arm dof,)
-                - Units: [[rads, rads, ..., rads], seconds]
-                - Source: robot controller or action
-                - Example: "([0.0, 1.57, 1.23], 0.1)" (compared with previous action for smoothness)
-        """
-
-        curr_pos, dt = last_arm_action
-
-        if dt <= 0:
-            return
-
-        if self.last_action is not None:
-
-            prev_pos, _  = self.last_action
-            vel = (curr_pos - prev_pos) / dt
-
-            if self.last_vel is not None:
-
-                # Calculate L2 norm of velocity differences
-                vel_diff = np.linalg.norm(vel - self.last_vel)
-
-                # Provide positive reward for consistent motion under threshold
-                if vel_diff < self._k:
-                    consistency_reward = 1.0 - (vel_diff / self._k)
-                    self.add_reward(consistency_reward)
-
-            self.last_vel = vel
-
-        # Update tracking state
-        self.last_action = (curr_pos.copy(), dt)
-
-    def reset(self):
-        """Reset internal state for new episode."""
-        self.last_action = None
-        self.last_vel = None
+# =================== NAVIGATION ==================== #
 
 @RewardUnitFactory.register("goal_reached_navigation")
 class RewardGoalReachedNavigation(RewardGoalReached):
