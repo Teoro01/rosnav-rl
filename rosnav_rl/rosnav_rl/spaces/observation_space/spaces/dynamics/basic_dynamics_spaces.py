@@ -167,3 +167,8 @@ class SubgoalInRobotFrameSpace(BaseObservationSpace):
                 - Example: [2.5, -1.3] (2.5m forward, 1.3m to the right)
         """
         return subgoal_in_robot_frame
+
+@SpaceFactory.register(auto_name=True, category=SpaceCategory.DYNAMICS)
+class LastArmActionSpace(BaseObservationSpace):
+    name = "LastArmActionSPace"
+    requires = {}

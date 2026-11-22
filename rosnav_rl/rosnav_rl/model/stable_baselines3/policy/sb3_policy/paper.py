@@ -372,3 +372,16 @@ class AGENT_7(StableBaselinesPolicyDescription):
     features_extractor_kwargs = dict(features_dim=256)
     net_arch = dict(pi=[64, 64], vf=[64, 64])
     activation_fn = nn.ReLU
+
+@AgentFactory.register("AGENT_7_ARM")
+class AGENT_7_ARM(StableBaselinesPolicyDescription):
+    algorithm_class: type[BaseAlgorithm] = PPO
+    observation_space_kwargs = {
+        "normalize": True,
+    }
+    observation_spaces = [
+    ]
+    features_extractor_class = EXTRACTOR_10
+    features_extractor_kwargs = dict(features_dim=256)
+    net_arch = dict(pi=[64, 64], vf=[64, 64])
+    activation_fn = nn.ReLU
